@@ -1,0 +1,206 @@
+---
+title: "habs"
+format: html
+editor: visual
+---
+
+## hurricane Ian 
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(stars)
+library(dplyr)
+library(tmap)
+library(janitor)
+library(patchwork)
+```
+Load Data 
+```{r}
+ian_flooding <- read_csv(here::here('data', 'hurrican_ian_flooding.csv'))
+ejscreen <- read_sf(here::here('data', 'ejscreen', 'EJSCREEN_2023.gdb'))
+
+hab <- read_sf(here::here('data', 'karenia_brevis_abundance_json')) 
+
+county <- read_sf(here::here('data', 'tl_2023_us_county')) # US counties 
+
+sarasota_aqi <- read_csv(here::here('data', 'sarasota_aqi.csv')) %>% clean_names()
+
+```
+
+Crop to County 
+```{r}
+# Bounding box for Pinellas to Lee Counties 
+
+# right top: 28.173171, -82.651808
+# left top: 28.173171, -84.00000
+# bottom right: 26.318144, -81.658201
+# bottom left: 26.318144: -84.0000
+#bound_box <- st_bbox(c(xmin = -84.7000, xmax = -81.658201, ymax = 28.173171, ymin = 26.318144), crs = st_crs(hab))
+#hab_crop <- st_crop(hab, bound_box)
+
+
+# Crop hab data to Sarasota county 
+# Create mask 
+sarasota_mask <- county %>% 
+  filter(NAMELSAD == 'Sarasota County')
+
+# Change crs 
+if (st_crs(sarasota_mask) == st_crs(hab)) {
+  print("CRS match")
+  } else {
+  print("updating crs")
+  sarasota_mask <- st_transform(sarasota_mask, crs = st_crs(hab))
+  }
+
+# Crop to sarasota county 
+hab_sarasota<- st_crop(hab, sarasota_mask)
+
+```
+ 
+Fix datasets 
+```{r}
+# Change data column to date time 
+sarasota_aqi$date <- mdy(sarasota_aqi$date)
+
+# Filter for 2013 
+sarasota_aqi_2013 <- sarasota_aqi %>% 
+  filter(year(date) == 2013)
+
+hab_sarasota_2013 <- hab_sarasota %>% 
+  filter(year(date) == 2013)
+
+
+# Filter for 2013 and 2014
+sarasota_aqi_2013_2014 <- sarasota_aqi %>% 
+  filter((year(date) == 2013) | (year(date) == 2014))
+
+hab_sarasota_2013_2014 <- hab_sarasota %>% 
+  filter((year(date) == 2013) | (year(date) == 2014))
+
+
+```
+
+
+Plots 
+```{r}
+
+sara_aqi_2013_plot <- sarasota_aqi %>% 
+  filter((year(date) == 2013) | (year(date) == 2014)) %>% 
+  ggplot(aes(x = date, 
+           y = daily_max_8_hour_ozone_concentration)) + 
+  geom_point() + 
+  geom_smooth()
+
+
+
+sara_hab_2013_plot <- hab_sarasota %>% 
+  filter((year(date) == 2013) | (year(date) == 2014)) %>% 
+  ggplot(aes(x = date, 
+           y = count)) + 
+  geom_point() + 
+  geom_smooth()
+
+hab_sarasota %>% 
+  filter(year(date) == 2014) %>% 
+  ggplot(aes(x = date, 
+           y = count)) + 
+  geom_point() + 
+  geom_smooth()
+
+
+
+(sara_aqi_2013_plot | sara_hab_2013_plot)
+
+
+```
+
+
+HAB Sarasota dates: 
+
+# 2013-07-09 
+# 2013-12-12 
+
+```{r}
+# Air quaility before, during, after HAB outbreak 
+sarasota_aqi_2013 <- sarasota_aqi_2013 %>% 
+  mutate(hab_occurance = case_when( 
+    ymd(date) < as.Date('2013-10-01') ~ 'before', 
+    ymd(date) > as.Date('2013-11-12') ~ 'after',
+    TRUE ~ "during"
+    )
+  )
+
+sarasota_aqi_2013_2014 <- sarasota_aqi_2013_2014 %>% 
+  mutate(hab_occurance = case_when( 
+    ymd(date) < as.Date('2013-10-01') ~ 'before', 
+    ymd(date) > as.Date('2013-11-12') ~ 'after',
+    TRUE ~ "during"
+    )
+  )
+
+sarasota_aqi_2013 %>% 
+  select(date, hab_occurance)
+
+```
+
+```{r}
+
+ggplot(sarasota_aqi_2013, 
+       aes(x = hab_occurance, 
+           y = daily_max_8_hour_ozone_concentration)) + 
+  geom_boxplot()
+
+ggplot(sarasota_aqi_2013_2014, 
+       aes(x = hab_occurance, 
+           y = daily_max_8_hour_ozone_concentration)) + 
+  geom_boxplot()
+```
+
+Join data by date 
+
+```{r}
+# 2013 
+joined <- full_join(hab_sarasota_2013, sarasota_aqi_2013, by = 'date')
+
+a <- ggplot(joined,
+       aes(x = date, 
+           y = daily_max_8_hour_ozone_concentration)) +
+  geom_point() + 
+  geom_smooth()
+
+
+b <- ggplot(joined,
+       aes(x = date, 
+           y = count)) +
+  geom_point() + 
+  geom_smooth()
+
+(a|b)
+
+
+# 2013 - 2014
+joined2 <- full_join(hab_sarasota_2013_2014, sarasota_aqi_2013_2014, by = 'date')
+
+c <- ggplot(joined2,
+       aes(x = date, 
+           y = daily_max_8_hour_ozone_concentration)) +
+  geom_point() + 
+  geom_smooth()
+
+
+d <- ggplot(joined2,
+       aes(x = date, 
+           y = count)) +
+  geom_point() + 
+  geom_smooth()
+
+(c|d)
+
+```
+
+
+
+
+
+

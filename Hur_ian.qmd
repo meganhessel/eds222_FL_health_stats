@@ -1,0 +1,88 @@
+---
+title: "flood_trial"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(stars)
+library(dplyr)
+library(tmap)
+library(janitor)
+```
+
+```{r}
+
+ian_flooding <- read_csv(here::here('data', 'hurrican_ian_flooding.csv'))
+ejscreen <- read_sf(here::here('data', 'ejscreen', 'EJSCREEN_2023.gdb'))
+county <- read_sf(here::here('data', 'tl_2023_us_county')) # US counties 
+
+#st_layers(here::here("data", "ACSDP5Y2022.DP05-Data.csv"))
+
+acs_2022 <- read_csv(here::here('data', 'ACSDP5Y2022.DP05-Data.csv'))
+
+
+
+```
+
+```{r}
+# filter to FL
+soc_FL <- ejscreen %>% # polygons with socoenmic data  
+  filter(ST_ABBREV == "FL") %>% 
+  clean_names()
+
+flooding_FL <- ian_flooding %>%  # Flooding data 
+  filter(`State/Province`== "FL") %>% 
+  select(City, `State/Province`, `Latitude (°)`, `Longitude (°)`, `Totals (inches)`) %>% 
+  clean_names()
+
+```
+
+```{r}
+# Data investigation 
+ggplot(flooding_FL, 
+       aes(x = longitude, 
+           y = latitude)) + 
+  geom_point()
+
+```
+
+```{r}
+# Change flooding data to sf  
+flooding_FL_sf <- st_as_sf(flooding_FL, coords = c("longitude", "latitude"), crs = st_crs(soc_FL))
+
+
+which(!st_is_valid(flooding_FL_sf))
+flooding_FL_sf <- st_make_valid(flooding_FL_sf)
+```
+
+```{r}
+tm_shape(soc_FL) + 
+  tm_polygons()
+
+tmap_mode('plot')
+
+tm_shape(flooding_FL_sf) + 
+  tm_dots() + 
+  tm_basemap("OpenTopoMap")
+```
+
+Amount of Precipitation Per Census Block
+
+```{r}
+# Merge dfs 
+# joined 
+merged_data <- st_join(flooding_FL, soc_FL, join = st_intersects)
+# filter 
+merged_data <- st_filter(flooding_FL, soc_FL, .predicate = st_intersects)
+# Clip 
+merged_data <- st_intersection(flooding_FL_sf, soc_FL)
+
+
+print(dim(soc_FL))
+print(dim(flooding_FL))
+print(dim(merged_data))
+
+```
