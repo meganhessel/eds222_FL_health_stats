@@ -4,6 +4,8 @@ format: html
 editor: visual
 ---
 
+Did Hurricane Ian flooding dis-proportionally effect poor communities ?
+
 ```{r}
 library(tidyverse)
 library(ggplot2)
@@ -22,7 +24,6 @@ county <- read_sf(here::here('data', 'tl_2023_us_county')) # US counties
 #st_layers(here::here("data", "ACSDP5Y2022.DP05-Data.csv"))
 
 acs_2022 <- read_csv(here::here('data', 'ACSDP5Y2022.DP05-Data.csv'))
-
 
 
 ```

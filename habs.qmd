@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-## hurricane Ian 
+## 2013 Harmful Algea Blooms effect on air quality?
 
 ```{r}
 library(tidyverse)
@@ -15,8 +15,11 @@ library(tmap)
 library(janitor)
 library(patchwork)
 ```
-Load Data 
+
+Load Data
+
 ```{r}
+
 ian_flooding <- read_csv(here::here('data', 'hurrican_ian_flooding.csv'))
 ejscreen <- read_sf(here::here('data', 'ejscreen', 'EJSCREEN_2023.gdb'))
 
@@ -28,7 +31,8 @@ sarasota_aqi <- read_csv(here::here('data', 'sarasota_aqi.csv')) %>% clean_names
 
 ```
 
-Crop to County 
+Crop to County
+
 ```{r}
 # Bounding box for Pinellas to Lee Counties 
 
@@ -57,8 +61,9 @@ if (st_crs(sarasota_mask) == st_crs(hab)) {
 hab_sarasota<- st_crop(hab, sarasota_mask)
 
 ```
- 
-Fix datasets 
+
+Fix datasets
+
 ```{r}
 # Change data column to date time 
 sarasota_aqi$date <- mdy(sarasota_aqi$date)
@@ -81,8 +86,8 @@ hab_sarasota_2013_2014 <- hab_sarasota %>%
 
 ```
 
+Plots
 
-Plots 
 ```{r}
 
 sara_aqi_2013_plot <- sarasota_aqi %>% 
@@ -115,11 +120,11 @@ hab_sarasota %>%
 
 ```
 
+HAB Sarasota dates:
 
-HAB Sarasota dates: 
+# 2013-07-09
 
-# 2013-07-09 
-# 2013-12-12 
+# 2013-12-12
 
 ```{r}
 # Air quaility before, during, after HAB outbreak 
@@ -157,7 +162,7 @@ ggplot(sarasota_aqi_2013_2014,
   geom_boxplot()
 ```
 
-Join data by date 
+Join data by date
 
 ```{r}
 # 2013 
@@ -198,9 +203,3 @@ d <- ggplot(joined2,
 (c|d)
 
 ```
-
-
-
-
-
-

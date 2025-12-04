@@ -1,0 +1,347 @@
+---
+title: "socio_ian_flooding"
+format: html
+output-location: 
+---
+
+# Understanding the Sociodemographics influences on Hurricane Ian Flooding
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(stars)
+library(dplyr)
+library(tmap)
+library(janitor)
+library(glmmTMB)
+```
+
+Load in Data
+```{r}
+
+# Load in Data 
+flooding_FL <- read_csv(here::here('data', 'hurrican_ian_flooding.csv')) %>% 
+  filter(`State/Province`== "FL") %>% 
+  select(City, `State/Province`, `Latitude (°)`, `Longitude (°)`, `Totals (inches)`) %>% 
+  clean_names()
+
+fl_sociodem <- read_sf(here::here('data', 'ejscreen', 'EJSCREEN_2023.gdb')) %>% 
+  filter(ST_ABBREV == 'FL') %>% 
+  clean_names()
+
+hurr_ian <- read_sf(here::here('data', 'Hurricane_Ian_Track', 'Hurricane_Ian_Track.shp'))
+
+counties <- read_sf(here::here('data', 'tl_2023_us_county', 'tl_2023_us_county.shp'))
+
+```
+
+Seperate for FL counties  
+
+```{r}
+fl_counties <- counties %>% 
+  filter(STATEFP == 12)
+```
+
+Adding buffers to Hurricane path
+
+```{r}
+hurr_union <- st_union(hurr_ian) # Unionize hurricane lines 
+ian_buffer <- st_buffer(hurr_union, dist = units::set_units(120, "miles")) # Buffer 
+
+rm(hurr_union)
+```
+
+Map Hurricane Ian in Florida
+
+```{r}
+
+tm_shape(hurr_ian) + 
+  tm_lines() + 
+  tm_title(text = "Hurrican Ian's Path") +
+  tm_basemap("OpenTopoMap") 
+
+
+# Hurricane Ian Buffer 
+tm_shape(ian_buffer) +
+  tm_polygons(col = NA,
+              lwd = 0,
+              fill = "red",
+              fill_alpha = 0.4) +
+  tm_shape(hurr_ian) + 
+  tm_lines(lwd = 2) +
+  tm_shape(fl_sociodem, is.main = TRUE) +
+  tm_title(text = "Hurrican Ian's Path Through Florida") +
+  tm_basemap("OpenTopoMap") 
+
+
+```
+
+Change Flooding data to sf
+
+```{r}
+# Change flooding data to sf  
+flooding_FL_sf <- st_as_sf(flooding_FL, coords = c("longitude", "latitude"), crs = 'EPSG:4326')
+
+```
+
+Change CRS flooding data to match the CRS of the sociodemographic data
+
+```{r}
+flooding_FL_sf <- st_transform(flooding_FL_sf, st_crs(fl_sociodem))
+
+# Check if CRS match 
+st_crs(flooding_FL_sf) == st_crs(ian_buffer) 
+st_crs(flooding_FL_sf) == st_crs(fl_sociodem)
+st_crs(ian_buffer) == st_crs(fl_sociodem)
+
+```
+
+Adding column - (1) if flooding zone is in the path of the hurricane (0) not in path
+
+```{r}
+# Intersections of flooding points and hurricane path 
+intersect <- st_intersects(flooding_FL_sf, ian_buffer) #sparse = FALSE)
+len <- data.frame(lengths(intersect) > 0) # See which rows did and didn't intersect 
+
+# Combine dataframes 
+flooding_FL_sf <- cbind(flooding_FL_sf, len) %>% 
+  rename('hur_path' = `lengths.intersect....0` ) 
+# Change to 1 and 0s 
+flooding_FL_sf$hur_path <- as.numeric(flooding_FL_sf$hur_path)  
+
+```
+
+Looking at Flooding in Florida
+
+```{r}
+tm_shape(flooding_FL_sf) +
+  tm_dots(fill = 'totals_inches', 
+          fill_alpha = 0.7,
+          fill.scale = tm_scale(breaks = c(0, 5, 10, 15, 20, 30), 
+                                values = c('grey', "grey35", 'gold', 'orange', 'red')),
+          fill.legend = tm_legend(title = "Total Flooding\n(inches)"), 
+          #border.col = 'black',
+          size = 0.2) + 
+  tm_title(text = "Flooding in Florida from Hurrican Ian") +
+  tm_shape(hurr_ian) + 
+  tm_lines(lwd = 1.5) +
+  tm_basemap("Esri.OceanBasemap") + 
+  tm_compass(position = c('left', 'bottom')) +
+  tm_scalebar(position = c('left', 'bottom')) + 
+  tm_add_legend(labels = "Path", 
+                type= "line", 
+                title = "Hurricane Ian"
+                )
+
+
+```
+
+```{r}
+#inset_map <- 
+inset_map <- tm_shape(
+   fl_sociodem, 
+   bbox = sf::st_bbox(c(
+    xmin = -82.86, xmax = -79.71,
+    ymin = 26.54,  ymax = 28.59
+  )), 
+  crs = st_crs(fl_sociodem) ) + 
+  tm_polygons(fill = 'p_peopcolorpct', 
+              fill.scale = tm_scale(breaks = c(0, 25, 50, 75, 100)),
+              lwd = 0.1) + 
+  tm_title(text = "Communities Faceing the Eye", 
+           position = tm_pos_in(), 
+           size = 0.8) +
+  tm_shape(hurr_ian) + 
+  tm_lines(lwd = 2) +
+ tm_basemap("Esri.OceanBasemap") + 
+tm_scalebar(position = c('right', 'bottom')) 
+
+
+
+tm_shape(fl_sociodem) + 
+  tm_polygons(#fill = 'p_peopcolorpct', 
+              #fill.scale = tm_scale(breaks = c(0, 25, 50, 75, 100))
+    ) + 
+  tm_shape(hurr_ian) +
+  tm_lines(lwd = 3) + 
+  tm_layout()
+  tm_inset(inset_map, 
+           position = tm_pos_out(), 
+           width = 15, 
+           height = 15)
+
+```
+
+Joining data
+
+```{r}
+# Check crs 
+st_crs(flooding_FL_sf) == st_crs(fl_sociodem)
+
+flooding_FL_sf <- st_transform(flooding_FL_sf, crs = st_crs(fl_sociodem))
+
+# Full merge 
+#zonal stats: zonal(x = flooding_FL_sf, z = vect(fl_cond))
+join_df <- st_join(flooding_FL_sf, fl_sociodem, join = st_within)
+#drop_na(state_name)
+
+```
+
+```{r}
+join_df_county <- join_df %>% 
+  group_by(cnty_name) %>% 
+  summarise(across(everything(), mean, na.rm = TRUE)) %>% 
+  st_drop_geometry(join_df) 
+
+
+fl_counties <- fl_counties %>% 
+  rename('cnty_name' = 'NAMELSAD')
+
+fl_county_info <- st_join(join_df_county, fl_counties, left = TRUE)
+
+```
+
+Total Flood inches by county 
+```{r}
+tm_shape(fl_county_info) + 
+  tm_polygons()
+
+```
+
+
+Generalized Linear Mixed Model 
+```{r}
+
+model <- glmmTMB(totals_inches ~ p_peopcolorpct * p_lowincpct + hur_path + acstothu + cnty_name, 
+        data = join_df, 
+        ziformula = ~ hur_path
+        )
+
+summary(model)
+```
+
+Create Expand Grid 
+```{r}
+grid <- expand_grid(p_peopcolorpct = seq(min(join_df$p_peopcolorpct), max(join_df$p_peopcolorpct)), 
+            p_lowincpct = seq(min(join_df$p_lowincpct), max(join_df$p_lowincpct)), 
+            hur_path = 0:1) %>% 
+  mutate(
+    acstothu = mean(join_df$acstotpop)
+  )
+
+```
+
+Predictions 
+```{r}
+prediction_grid <- grid %>% 
+  mutate(
+    flood_prediction = predict(object = model, 
+                               newdata = grid,
+                               type = 'response')
+  )
+
+```
+
+Confidence intervals 
+```{r}
+prediction_grid_se <- predict(object = model, 
+                              newdata = prediction_grid, 
+                              type = 'response', 
+                              se.fit = TRUE)
+
+prediction_grid %>% 
+  mutate(
+    prediction_se = prediction_grid_se$se.fit,
+    ci_lower = qnorm(0.025, mean = flood_prediction, sd = prediction_se),
+    ci_upper = qnorm(0.975, mean = flood_prediction, sd = prediction_se)
+  )
+
+```
+
+Plots 
+```{r}
+
+prediction_grid %>% 
+  filter(hur_path == 1) %>% 
+  ggplot(aes(x = p_peopcolorpct, y = p_lowincpct, fill = flood_prediction)) + 
+  geom_raster() +
+  scale_fill_steps2(low = "#ffad76",        #- THIS CREATES COLOR BINS 
+                     mid = "#ffe896",
+                     high = "#488f30", 
+                     midpoint = median(prediction_grid$flood_prediction), 
+                     n.breaks = 8, 
+                     limits = c(0, 8)) +
+  #scale_fill_gradient(low = "#466DA7", high = "#D9252A") + # Produces the continuous color scale 
+  theme_classic() + 
+  labs(title = "Flood Predictions for Communities Facing the Storm Head on", 
+       x = "People of Color (%)", 
+       y = "Low Income (%)", 
+       fill = "Flood Predictions (inches)" 
+       )
+
+
+prediction_grid %>% 
+  filter(hur_path == 0) %>% 
+  ggplot(aes(x = p_peopcolorpct, y = p_lowincpct, fill = flood_prediction)) + 
+  geom_raster() +
+  scale_fill_steps2(low = "#ffad76",        #- THIS CREATES COLOR BINS 
+                     mid = "#ffe896",
+                     high = "#488f30", 
+                     midpoint = median(prediction_grid$flood_prediction), 
+                     n.breaks = 8, 
+                    limits = c(0, 8)) +
+  #scale_fill_gradient(low = "#466DA7", high = "#D9252A") + # Produces the continuous color scale 
+  theme_classic() +
+   labs(title = "Flood Predictions for Communities Outside of the Storm's Diameter", 
+       x = "People of Color (%)", 
+       y = "Low Income (%)", 
+       fill = "Flood Predictions (inches)" 
+       )
+
+```
+
+People of color Graphs 
+```{r}
+prediction_grid$hur_path <- as.character(prediction_grid$hur_path)
+
+# Geom_line 
+ggplot() + 
+  geom_point(data = join_df, 
+             aes(x = p_peopcolorpct, y = totals_inches), 
+             alpha = 0.2) +
+  geom_line(data = prediction_grid, 
+            aes(x = p_peopcolorpct, y = flood_prediction, color = hur_path))+
+  scale_color_manual(values = c('red', 'blue'))
+
+# Geom_smooth
+ggplot(data = prediction_grid, 
+             aes(x = p_peopcolorpct, y = flood_prediction, color = hur_path)) + 
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(values = c('red', 'blue'))
+
+```
+Low income 
+```{r}
+
+# Geom_line 
+ggplot() + 
+  geom_point(data = join_df, 
+             aes(x = p_lowincpct, y = totals_inches), 
+             alpha = 0.2) +
+  geom_line(data = prediction_grid, 
+            aes(x = p_lowincpct, y = flood_prediction, color = hur_path))+
+  scale_color_manual(values = c('red', 'blue'))
+
+# Geom_smooth
+ggplot(data = prediction_grid, 
+             aes(x = p_lowincpct, y = flood_prediction, color = hur_path)) + 
+  geom_point()+ 
+  geom_smooth(method = "lm", se = FALSE) +
+  scale_color_manual(values = c('red', 'blue'))
+
+```
+
+
+
+
